@@ -15,8 +15,11 @@ from diff_plane_rasterization import GaussianRasterizationSettings as PlaneGauss
 from diff_plane_rasterization import GaussianRasterizer as PlaneGaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from scene.app_model import AppModel
+from scene.cameras import Camera
 from utils.sh_utils import eval_sh
-from utils.graphics_utils import normal_from_depth_image
+from utils.graphics_utils import normal_from_depth_image, getProjectionMatrix, getProjectionMatrixTorch
+from utils.general_utils import build_scaling_rotation
+from copy import deepcopy
 
 def render_normal(viewpoint_cam, depth, offset=None, normal=None, scale=1):
     # depth: (H, W), bg_color: (3), alpha: (H, W)
@@ -33,7 +36,7 @@ def render_normal(viewpoint_cam, depth, offset=None, normal=None, scale=1):
     return normal_ref
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, 
-           app_model: AppModel=None, return_plane = True, return_depth_normal = True):
+           app_model: AppModel=None, return_plane = True, return_depth_normal = True, pre_transf = None):
     """
     Render the scene. 
     
@@ -48,11 +51,29 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     except:
         pass
 
+    cam = deepcopy(viewpoint_camera)
+
+    fov = torch.tensor([cam.FoVx, cam.FoVy]).cuda()
+
+    identity = Camera(cam.colmap_id,torch.eye(3).numpy(),torch.zeros(3).numpy(),
+                              cam.FoVx,cam.FoVy,cam.image_width, cam.image_height,
+                              cam.image_path, cam.depth_path, cam.image_name, cam.uid,
+                              cam.trans, cam.scale)
+
+    if pre_transf is not None: 
+        transf = pre_transf
+        viewpoint_camera=identity
+        pre_transf=True
+    else: pre_transf=False
+    
     # Set up rasterization configuration
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
 
     means3D = pc.get_xyz
+
+    if pre_transf: means3D = (transf@torch.cat((means3D,torch.ones_like(means3D[...,:1])),-1).T)[:3].T
+
     means2D = screenspace_points
     means2D_abs = screenspace_points_abs
     opacity = pc.get_opacity
@@ -62,7 +83,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     scales = None
     rotations = None
     cov3D_precomp = None
-    if pipe.compute_cov3D_python:
+
+    if pre_transf:
+        L = build_scaling_rotation(torch.exp(pc._scaling), pc._rotation)
+        L=transf[:3,:3]@L
+        actual_covariance = L @ L.transpose(1, 2)
+        symm = torch.stack((actual_covariance[:, 0, 0], actual_covariance[:, 0, 1], actual_covariance[:, 0, 2], 
+                            actual_covariance[:, 1, 1], actual_covariance[:, 1, 2], actual_covariance[:, 2, 2]),1)
+        cov3D_precomp=symm
+    elif pipe.compute_cov3D_python:
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
         scales = pc.get_scaling
@@ -74,7 +103,13 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     colors_precomp = None
 
     if override_color is None:
-        if pipe.convert_SHs_python:
+        if pre_transf and 1:
+            shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+            dir_pp = (means3D - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+        elif pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
@@ -105,6 +140,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rasterizer = PlaneGaussianRasterizer(raster_settings=raster_settings)
 
     if not return_plane:
+            
         rendered_image, radii, out_observe, _, _ = rasterizer(
             means3D = means3D,
             means2D = means2D,

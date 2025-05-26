@@ -16,8 +16,7 @@ import random
 import numpy as np
 from random import randint
 from utils.loss_utils import l1_loss, ssim, lncc, get_img_grad_weight
-from utils.graphics_utils import patch_offsets, patch_warp, normal_from_depth_image
-from utils.graphics_utils import patch_offsets, patch_warp, normal_from_depth_image
+from utils.graphics_utils import patch_offsets, patch_warp, normal_from_depth_image, matrix_to_euler_angles, lift_to_poses
 from gaussian_renderer import render, network_gui
 import sys, time
 from scene import Scene, GaussianModel
@@ -101,7 +100,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         os.system(cmd)
 
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, shuffle=False)
     gaussians.training_setup(opt)
 
     app_model = AppModel()
@@ -119,7 +118,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    viewpoint_stack = None
+    viewpoint_stack = scene.getTrainCameras().copy()
+
+    if args.opt_pose:
+        poses = torch.stack([cam.world_view_transform.T for cam in viewpoint_stack])
+        transf_params = torch.nn.Parameter(torch.cat((matrix_to_euler_angles(poses[:,:3,:3]),poses[:,:3,-1]),-1).detach().clone(),requires_grad=True)
+        cam_lr=5e-5
+        cam_optim = torch.optim.Adam(lr=cam_lr, params=[transf_params])
+
     ema_loss_for_log = 0.0
     ema_single_view_for_log = 0.0
     ema_multi_view_geo_for_log = 0.0
@@ -151,6 +157,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         iter_start.record()
         gaussians.update_learning_rate(iteration)
+
+        if args.opt_pose:
+            c_iter = iteration - opt.start_cam_opt
+            cam_lr = opt.cam_lr_init if c_iter < opt.cam_lr_init_steps else opt.cam_lr_final if c_iter < opt.cam_lr_init_steps else 0
+            for param_group in cam_optim.param_groups:
+                param_group['lr'] = cam_lr
+
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
@@ -158,7 +171,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
+            
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        cam_id = viewpoint_cam.uid
+
+        if args.opt_pose:
+            transf = lift_to_poses(transf_params[cam_id])
 
         gt_image, gt_image_gray = viewpoint_cam.get_image()
         if iteration > 1000 and opt.exposure_compensation:
@@ -170,7 +188,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, app_model=app_model,
-                            return_plane=iteration>opt.single_view_weight_from_iter, return_depth_normal=iteration>opt.single_view_weight_from_iter)
+                            return_plane=iteration>opt.single_view_weight_from_iter, return_depth_normal=iteration>opt.single_view_weight_from_iter, pre_transf=transf)
+        
         image, viewspace_point_tensor, visibility_filter, radii = \
             render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
@@ -240,16 +259,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             debug_tensor["normal"] = depth_normal_gt
             
             # Depth-loss
-            depth = render_pkg["plane_depth"]
+            depth = torch.clamp(render_pkg["plane_depth"], min=0, max=10)
             # min_non_zero = depth[depth != 0].min()
             # depth[depth == 0] = min_non_zero
-            depth = normalize(depth)
+            depth_norm = normalize(depth)
             
             depth_metric_norm = normalize(depth_metric)
-            depth_loss = depth_weight * l1_loss(depth, depth_metric_norm)
+            depth_loss = depth_weight * l1_loss(depth_norm, depth_metric_norm)
             loss += depth_loss
                 
-            debug_loss["depth_loss"] = depth_loss.item()
+            # debug_loss["depth_loss"] = depth_loss.item()
             
             debug_tensor["plane_depth"] = depth
             debug_tensor["depth_metric"] = depth_metric_norm
@@ -558,6 +577,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
+    parser.add_argument("--opt_pose", action="store_true", default=False)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     

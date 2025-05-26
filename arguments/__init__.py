@@ -78,14 +78,21 @@ class PipelineParams(ParamGroup):
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 15_000
-        self.iterations = 15_000
+        self.iterations = 45_000
+        self.iterations = 45_000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
-        self.position_lr_max_steps = 15_000
+        self.position_lr_max_steps = 45_000
+        self.start_cam_opt = 1
+        
+        self.cam_lr_init = 5e-5
+        self.cam_lr_final = 5e-6
+        self.cam_lr_init_steps = 10_000
+        self.cam_lr_final_steps = 20_000
+
         self.feature_lr = 0.0025
-        self.opacity_lr = 0.05
+        self.opacity_lr = 0.1
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.percent_dense = 0.001
@@ -93,13 +100,13 @@ class OptimizationParams(ParamGroup):
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 500
-        self.densify_until_iter = 15_000
+        self.densify_until_iter = 45_000
         self.densify_grad_threshold = 0.0002
         self.scale_loss_weight = 100.0
         
         self.wo_image_weight = False
         self.single_view_weight = 0.015
-        self.single_view_weight_from_iter = 7000
+        self.single_view_weight_from_iter = 15_000
         
         self.dn_weight = 0.5
         self.dn_l1_weight_init = 0.2
@@ -110,7 +117,7 @@ class OptimizationParams(ParamGroup):
         self.use_multi_view_trim = True
         self.multi_view_ncc_weight = 0.15
         self.multi_view_geo_weight = 0.03
-        self.multi_view_weight_from_iter = 7000
+        self.multi_view_weight_from_iter = 15_000
         self.multi_view_patch_size = 3
         self.multi_view_sample_num = 102400
         self.multi_view_pixel_noise_th = 1.0
