@@ -71,7 +71,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-    cam_intrinsics, images_metas, points3d = read_model(os.path.join(args.base_dir, "sparse/0", "0"), ext=f".{args.model_type}")
+    cam_intrinsics, images_metas, points3d = read_model(os.path.join(args.base_dir, "sparse", "0"), ext=f".{args.model_type}")
 
     pts_indices = np.array([points3d[key].id for key in points3d])
     pts_xyzs = np.array([points3d[key].xyz for key in points3d])
@@ -88,7 +88,7 @@ if __name__ == '__main__':
         for depth_param in depth_param_list if depth_param != None
     }
 
-    with open(f"{args.base_dir}/sparse/0/depth_params.json", "w") as f:
+    with open(f"{args.base_dir}/sparse/depth_params.json", "w") as f:
         json.dump(depth_params, f, indent=2)
 
     print(0)

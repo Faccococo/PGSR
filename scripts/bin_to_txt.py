@@ -36,8 +36,8 @@ def save_images_to_txt(images, output_txt_path):
 
 # 主函数
 def main():
-    images_bin_path = '/home/huangzitong/workspace/gaussian_splatter/PGSR/datasets/sampling/demo_removed/sparse/0/images.bin'  # 输入你的 images.bin 文件路径
-    output_txt_path = '/home/huangzitong/workspace/gaussian_splatter/PGSR/datasets/sampling/demo_removed/sparse/0/images.txt'  # 输出 txt 文件路径
+    images_bin_path = '/home/huangzitong/workspace/gaussian_splatter/PGSR/datasets/sampling/demo_removed/sparse/images.bin'  # 输入你的 images.bin 文件路径
+    output_txt_path = '/home/huangzitong/workspace/gaussian_splatter/PGSR/datasets/sampling/demo_removed/sparse/images.txt'  # 输出 txt 文件路径
     
     # 加载 images.bin 文件
     images = load_images(images_bin_path)

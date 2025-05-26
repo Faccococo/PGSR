@@ -241,8 +241,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             
             # Depth-loss
             depth = render_pkg["plane_depth"]
-            min_non_zero = depth[depth != 0].min()
-            depth[depth == 0] = min_non_zero
+            # min_non_zero = depth[depth != 0].min()
+            # depth[depth == 0] = min_non_zero
             depth = normalize(depth)
             
             depth_metric_norm = normalize(depth_metric)
