@@ -245,14 +245,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # depth[depth == 0] = min_non_zero
             depth = normalize(depth)
             
-            depth_metric_norm = normalize(depth_metric)
-            depth_loss = depth_weight * l1_loss(depth, depth_metric_norm)
+            depth_metric = normalize(depth_metric)
+            depth_loss = depth_weight * l1_loss(depth, depth_metric)
             loss += depth_loss
                 
             debug_loss["depth_loss"] = depth_loss.item()
             
             debug_tensor["plane_depth"] = depth
-            debug_tensor["depth_metric"] = depth_metric_norm
+            debug_tensor["depth_metric"] = depth_metric
             
                 
 
